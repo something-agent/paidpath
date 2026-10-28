@@ -3,10 +3,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { privateKeyToAccount } from "viem/accounts";
 import { lintEndpoint } from "./lint/lint";
 import { runPaidTest, planAccount, PaidResult } from "./paid";
+import { loadTiers, runTiers } from "./tiers";
 import { cdpValidate } from "./cdp";
 import { assertNoSecret, parseUsdc, fmtUsdc } from "./util";
 
-export const VERSION = "0.1.2";
+export const VERSION = "0.1.3";
 const KEY_ENV = "PAIDPATH_PRIVATE_KEY";
 const HELP = `paidpath ${VERSION}: self-test kit for x402 sellers. Test YOUR OWN paid endpoint, unpaid and paid.
 
@@ -25,9 +26,16 @@ const HELP = `paidpath ${VERSION}: self-test kit for x402 sellers. Test YOUR OWN
                               costs one more payment of the price, to your own payTo)
       --method POST|GET (default POST)   --body '<json>' | --body-file <path>   --header 'Name: value' (repeatable)
       --network eip155:8453 (default)    --asset <token>   --rpc <url> (repeatable)
-      --expect-status <n>   --expect-contains <text>   --no-replay   --no-underpay
+      --expect-status <n>   --expect-contains <text>   --expect-price <usdc>   --no-replay   --no-underpay
+      --tiers <tiers.json>    take this URL's expect-price/status/contains/method/body from a tiers file
       --max-signatures <n> (default 2, 3 with --race)   --max-total-usdc <cap> (default 2x price, 3x with --race)
       --out <transcript.json>   --json   --allow-private
+
+  paidpath tiers <tiers.json> --pay-to <your payTo> [--json]
+      No key, no payment. For a seller with several routes at different prices: reads each route's 402
+      and checks the quoted price against the file (P207), and flags two routes quoting the same price (P208).
+      tiers.json: {"https://api.example/basic": {"price": "0.001"}, "https://api.example/pro": {"price": "0.01",
+      "method": "POST", "body": {"q": 1}, "status": 200, "contains": "result"}}
 
   The key is read only from the ${KEY_ENV} env var, used in-process to sign, never sent or written.
   Every signature passes a guard: only an EIP-3009 transferWithAuthorization of the expected token,
@@ -82,11 +90,32 @@ export async function main(argv: string[], env: Record<string, string | undefine
     return r.verdict === "fail" ? 1 : 0;
   }
 
+  if (cmd === "tiers") {
+    const payTo = a.one("pay-to");
+    if (!payTo || !/^0x[0-9a-fA-F]{40}$/.test(payTo)) { emit("--pay-to <0x… your own receiving address> is required."); return 2; }
+    let tiers;
+    try { tiers = loadTiers(readFileSync(url, "utf8")); } catch (e) { emit(`tiers file: ${(e as Error).message}`); return 2; }
+    const r = await runTiers(tiers, payTo, { network: a.one("network"), asset: a.one("asset") });
+    if (a.has("json")) emit(JSON.stringify({ tool: `paidpath ${VERSION}`, ...r }, null, 2));
+    else {
+      emit(`paidpath tiers (${r.routes.length} routes, unpaid only, nothing signed)`);
+      for (const t of r.routes) { emit(`  ${t.url}  expected ${t.expected}  quoted ${t.quoted ?? "?"}`); for (const c of t.checks) emit(`    ${mark(c.ok)} ${c.id} ${c.text}`); }
+      for (const c of r.checks) emit(`  ${mark(c.ok)} ${c.id} ${c.text}`);
+      emit(`verdict: ${r.verdict.toUpperCase()}`);
+    }
+    return r.verdict === "pass" ? 0 : 1;
+  }
+
   if (cmd === "pay") {
     const payTo = a.one("pay-to"); const cap = a.one("max-usdc");
     if (!payTo || !/^0x[0-9a-fA-F]{40}$/.test(payTo)) { emit("--pay-to <0x… your own receiving address> is required: paidpath only pays the address you say is yours."); return 2; }
     if (!cap) { emit("--max-usdc <cap per payment, e.g. 0.01> is required."); return 2; }
-    let body = a.one("body");
+    let tier: any;
+    if (a.one("tiers")) {
+      try { tier = loadTiers(readFileSync(a.one("tiers")!, "utf8")).find((t) => t.url === url); } catch (e) { emit(`tiers file: ${(e as Error).message}`); return 2; }
+      if (!tier) { emit(`--tiers: ${url} is not in the tiers file.`); return 2; }
+    }
+    let body = a.one("body") ?? tier?.body;
     const bf = a.one("body-file"); if (bf) body = readFileSync(bf, "utf8");
     const headers: Record<string, string> = {};
     for (const h of a.opt["header"] ?? []) { const i = h.indexOf(":"); if (i > 0) headers[h.slice(0, i).trim()] = h.slice(i + 1).trim(); }
@@ -99,11 +128,12 @@ export async function main(argv: string[], env: Record<string, string | undefine
     } else account = planAccount();
     let r: PaidResult;
     try {
-      r = await runPaidTest({ url, method: a.one("method") ?? "POST", body, headers, payTo, network: a.one("network"), asset: a.one("asset"),
+      const ep = a.one("expect-price") ?? tier?.price;
+      r = await runPaidTest({ url, method: a.one("method") ?? tier?.method ?? "POST", expectPrice: ep !== undefined ? parseUsdc(String(ep)) : undefined, body, headers, payTo, network: a.one("network"), asset: a.one("asset"),
         maxAmount: parseUsdc(cap), maxTotal: a.one("max-total-usdc") ? parseUsdc(a.one("max-total-usdc")!) : undefined,
         maxSignatures: a.one("max-signatures") ? Number(a.one("max-signatures")) : undefined, account,
         replay: !a.has("no-replay"), underpay: !a.has("no-underpay"), replayBody: a.one("replay-body"), race: a.has("race"),
-        expectStatus: a.one("expect-status") ? Number(a.one("expect-status")) : undefined, expectContains: a.one("expect-contains"), rpcUrls: a.opt["rpc"] });
+        expectStatus: a.one("expect-status") ? Number(a.one("expect-status")) : tier?.status, expectContains: a.one("expect-contains") ?? tier?.contains, rpcUrls: a.opt["rpc"] });
     } catch (e) { emit(`error: ${(e as Error).message}`); return 1; }
     const transcript = JSON.stringify({ tool: `paidpath ${VERSION}`, ...r, payer: live ? account.address : undefined }, null, 2);
     const o = a.one("out"); if (o) { assertNoSecret(transcript, secret); writeFileSync(o, transcript + "\n"); }

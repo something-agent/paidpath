@@ -25,6 +25,8 @@ export interface PaidOptions {
   /** Opt-in: sign one more authorization and send it twice at the same time (P232). At most one may deliver. */
   race?: boolean;
   expectStatus?: number; expectContains?: string;
+  /** Expected price for this route in base units (P207). A different quote is refused before anything is signed. */
+  expectPrice?: bigint;
   rpcUrls?: string[]; fetchImpl?: typeof fetch; waitMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void>;
   now?: () => number;
 }
@@ -94,6 +96,11 @@ export async function runPaidTest(o: PaidOptions): Promise<PaidResult> {
   const known = KNOWN_ASSETS.get(asset.toLowerCase());
   if (o.asset ? asset.toLowerCase() !== o.asset.toLowerCase() : !(known && known.network === network)) { add("P201", false, "error", `asset ${asset} is not ${o.asset ? "the asset you passed" : "the known USDC on " + network}. Refusing to pay (pass --asset to override).`); return result("refused"); }
   const amount = BigInt(req.amount ?? req.maxAmountRequired);
+  if (o.expectPrice !== undefined) {
+    const okp = amount === o.expectPrice;
+    add("P207", okp, "error", okp ? `quoted price ${amount} base units matches the expected price for this route` : `quoted price ${amount} base units differs from the expected price ${o.expectPrice} for this route (wrong tier, stale price or a swapped route). Refusing to pay.`);
+    if (!okp) return result("refused", { network, payTo: req.payTo, amount: amount.toString(), asset });
+  }
   if (amount > o.maxAmount) { add("P201", false, "error", `price ${amount} base units exceeds your cap ${o.maxAmount}. Refusing to pay.`); return result("refused"); }
   add("P201", true, "info", `requirement selected: ${network}, ${amount} base units of ${asset.slice(0, 10)}… to ${req.payTo}`);
   const chainId = Number(network.split(":")[1]);

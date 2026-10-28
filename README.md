@@ -41,6 +41,7 @@ Node 20+. The bundled CLI is in `dist/`; no build step needed.
 | Check | What |
 |---|---|
 | P200–P201 | unpaid request returns a 402; a requirement exists that pays **your** `--pay-to`, in known USDC, at or below `--max-usdc`. Otherwise it refuses before signing anything. |
+| P207 | `--expect-price <usdc>` (or `--tiers`): the quoted price must equal the price you expect for this route; a different quote is refused before signing (wrong tier, stale price, swapped route) |
 | P203–P206 | the paid request returns 2xx, delivers a non-empty body (`--expect-contains`, `--expect-status`), valid JSON if it says JSON |
 | P210–P214 | a `PAYMENT-RESPONSE` header: success, same network, payer is your wallet, a transaction hash |
 | P220–P224 | on-chain: the receipt exists and succeeded, the token Transfer goes payer → payTo on the advertised token, for exactly the advertised amount, on the right chain |
@@ -48,6 +49,18 @@ Node 20+. The bundled CLI is in `dist/`; no build step needed.
 | P231 | `--replay-body`: the used payment header with a *different* request must be refused (payment bound to the request) |
 | P232 | `--race` (opt-in, one extra payment to yourself): one fresh authorization sent twice at the same moment; at most one copy may deliver (catches check-then-mark windows) |
 | P240 | **underpayment**: a fresh authorization for 1 base unit less must be refused |
+
+## `paidpath tiers <tiers.json> --pay-to <your payTo>`: several routes, several prices (no key, no payment)
+
+For sellers with tiered routes. Reads each route's unpaid 402 and checks the quoted price against your own file (P207),
+then flags two routes that quote the same price when your file prices them differently (P208, a common copy-paste slip
+when a tier is added). `paidpath pay <url> --tiers tiers.json` takes that route's price, method, body, status and
+`contains` from the same file. Idea from overwatch-dominion (three routes at three prices).
+
+```json
+{ "https://api.example/basic": { "price": "0.001" },
+  "https://api.example/pro":   { "price": "0.01", "method": "POST", "body": { "q": 1 }, "status": 200, "contains": "result" } }
+```
 
 ### Safety
 
@@ -80,7 +93,7 @@ import { runPaidTest, lintEndpoint, directoryReadiness, guardSigner } from "paid
 
 ## Develop
 
-`npm install && npm test` (87 tests; the paid path is tested against an in-process seller with switchable bugs and a
+`npm install && npm test` (93 tests; the paid path is tested against an in-process seller with switchable bugs and a
 stub RPC: no money moves). `npm run build` rebuilds `dist/`.
 
 License: MIT.

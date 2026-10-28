@@ -4,7 +4,8 @@
 
 ## Commands
 - `paidpath lint <url> [--method auto|GET|POST] [--cdp-validate] [--json]`: no key, no payment. x402lint rules (X001-X133) plus directory readiness for x402dash (GET must return 402), x402scan (v2 402 + /openapi.json x-payment-info or /.well-known/x402 + input schema), the402 (validator "payable"), CDP/PayAI Bazaar (extensions.bazaar input/output/schema, description <= 500 chars, non-tunnel https host; listing needs one settled payment).
-- `paidpath pay <url> --pay-to <your payTo> --max-usdc <cap> [--body json] [--yes]`: without --yes, a plan (nothing signed). With --yes and env PAIDPATH_PRIVATE_KEY: pays once, then checks P203-P206 delivery, P210-P214 PAYMENT-RESPONSE, P220-P224 on-chain Transfer (payTo, amount, token, chain), P230 replay refused (or idempotent re-delivery), P231 used header + different request refused (--replay-body), P232 concurrent double-submit (--race, opt-in), P240 underpayment (1 unit less) refused. Writes a redacted JSON transcript with --out.
+- `paidpath pay <url> --pay-to <your payTo> --max-usdc <cap> [--body json] [--yes]`: without --yes, a plan (nothing signed). With --yes and env PAIDPATH_PRIVATE_KEY: pays once, then checks P203-P206 delivery, P210-P214 PAYMENT-RESPONSE, P220-P224 on-chain Transfer (payTo, amount, token, chain), P230 replay refused (or idempotent re-delivery), P231 used header + different request refused (--replay-body), P232 concurrent double-submit (--race, opt-in), P240 underpayment (1 unit less) refused. --expect-price / --tiers add P207 (quoted price equals your price for this route, else refused before signing).
+- `paidpath tiers <tiers.json> --pay-to <your payTo>`: no key, no payment. Checks each route's quoted price against your tiers file (P207) and flags duplicate prices across tiers (P208). Writes a redacted JSON transcript with --out.
 - Exit codes: 0 pass, 1 fail, 2 refused/usage, 3 plan only.
 
 ## Safety

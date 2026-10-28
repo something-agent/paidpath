@@ -664,6 +664,9 @@ var redactPayment = (hdrVal) => {
 };
 var PlanStop = class extends Error {
 };
+var planAccount = (address = "0x000000000000000000000000000000000000dEaD") => ({ address, signTypedData: async () => {
+  throw new PlanStop("plan only");
+} });
 async function runPaidTest(o) {
   const t0 = Date.now();
   const f = o.fetchImpl ?? fetch;
@@ -746,6 +749,11 @@ async function runPaidTest(o) {
     return result("refused");
   }
   const amount = BigInt(req.amount ?? req.maxAmountRequired);
+  if (o.expectPrice !== void 0) {
+    const okp = amount === o.expectPrice;
+    add("P207", okp, "error", okp ? `quoted price ${amount} base units matches the expected price for this route` : `quoted price ${amount} base units differs from the expected price ${o.expectPrice} for this route (wrong tier, stale price or a swapped route). Refusing to pay.`);
+    if (!okp) return result("refused", { network, payTo: req.payTo, amount: amount.toString(), asset });
+  }
   if (amount > o.maxAmount) {
     add("P201", false, "error", `price ${amount} base units exceeds your cap ${o.maxAmount}. Refusing to pay.`);
     return result("refused");
@@ -897,6 +905,53 @@ function assertNoSecret(text, secret) {
   const t = text.toLowerCase();
   if (t.includes(hex) || t.includes(hex.slice(-16))) throw new Error("leak guard: output would contain key material; refusing to print or write it");
 }
+
+// src/tiers.ts
+function loadTiers(text) {
+  const j = JSON.parse(text);
+  if (!j || typeof j !== "object" || Array.isArray(j)) throw new Error('expected an object: {"<url>": {"price": "0.01", ...}}');
+  return Object.entries(j).map(([url, v]) => {
+    if (!/^https?:\/\//.test(url)) throw new Error(`${url}: keys must be full http(s) URLs`);
+    if (!v || v.price === void 0) throw new Error(`${url}: "price" (USDC, e.g. "0.01") is required`);
+    parseUsdc(String(v.price));
+    return { url, price: String(v.price), method: v.method, body: v.body === void 0 ? void 0 : typeof v.body === "string" ? v.body : JSON.stringify(v.body), status: v.status, contains: v.contains };
+  });
+}
+async function runTiers(tiers, payTo, opt = {}) {
+  const routes = [];
+  for (const t of tiers) {
+    const exp = parseUsdc(t.price);
+    const r = await runPaidTest({
+      url: t.url,
+      method: t.method ?? "POST",
+      body: t.body,
+      payTo,
+      network: opt.network,
+      asset: opt.asset,
+      maxAmount: exp,
+      expectPrice: exp,
+      account: planAccount(),
+      replay: false,
+      underpay: false,
+      fetchImpl: opt.fetchImpl
+    });
+    const checks2 = r.checks.filter((c) => c.id !== "P202");
+    routes.push({ url: t.url, expected: exp.toString(), quoted: r.amount, verdict: r.verdict, checks: checks2 });
+  }
+  const checks = [];
+  const byPrice = /* @__PURE__ */ new Map();
+  for (const r of routes) if (r.quoted) byPrice.set(r.quoted, [...byPrice.get(r.quoted) ?? [], r.url]);
+  const dup = [...byPrice.entries()].filter(([, u]) => u.length > 1);
+  const declaredDistinct = new Set(tiers.map((t) => parseUsdc(t.price).toString())).size === tiers.length;
+  if (routes.length > 1) checks.push({
+    id: "P208",
+    ok: dup.length === 0 || !declaredDistinct,
+    severity: "warn",
+    text: dup.length === 0 ? "every route quotes a different price" : `${dup.map(([p, u]) => `${u.length} routes quote ${p} base units (${u.join(", ")})`).join("; ")}${declaredDistinct ? " although your tiers file prices them differently" : " (your tiers file prices them the same, so this is expected)"}`
+  });
+  const failed = routes.some((r) => r.verdict !== "plan") || checks.some((c) => c.ok === false && c.severity === "error");
+  return { verdict: failed ? "fail" : "pass", routes, checks };
+}
 export {
   DEFAULT_RPCS,
   GuardRefused,
@@ -906,9 +961,11 @@ export {
   guardSigner,
   lintEndpoint,
   lintPaymentRequired,
+  loadTiers,
   parsePaymentRequired,
   parseUsdc,
   runPaidTest,
+  runTiers,
   verdictOf,
   verifyTransfer
 };

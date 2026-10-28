@@ -1,6 +1,6 @@
 {
   "name": "paidpath",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Self-test kit for x402 sellers: lint the unpaid 402 and directory readiness with no key, then pay your OWN endpoint once and check settlement, on-chain transfer, delivery, replay and underpayment rejection.",
   "type": "module",
   "bin": { "paidpath": "dist/cli.mjs" },

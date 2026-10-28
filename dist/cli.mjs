@@ -755,6 +755,11 @@ async function runPaidTest(o) {
     return result("refused");
   }
   const amount = BigInt(req.amount ?? req.maxAmountRequired);
+  if (o.expectPrice !== void 0) {
+    const okp = amount === o.expectPrice;
+    add("P207", okp, "error", okp ? `quoted price ${amount} base units matches the expected price for this route` : `quoted price ${amount} base units differs from the expected price ${o.expectPrice} for this route (wrong tier, stale price or a swapped route). Refusing to pay.`);
+    if (!okp) return result("refused", { network, payTo: req.payTo, amount: amount.toString(), asset });
+  }
   if (amount > o.maxAmount) {
     add("P201", false, "error", `price ${amount} base units exceeds your cap ${o.maxAmount}. Refusing to pay.`);
     return result("refused");
@@ -882,15 +887,6 @@ async function runPaidTest(o) {
   return result(failed ? "fail" : "pass", { network, payTo: req.payTo, amount: amount.toString(), asset });
 }
 
-// src/cdp.ts
-var CDP_VALIDATE = "https://api.cdp.coinbase.com/platform/v2/x402/validate";
-async function cdpValidate(url, method, fetchImpl = fetch) {
-  const r = await fetchImpl(CDP_VALIDATE, { method: "POST", headers: { "content-type": "application/json", "user-agent": "paidpath/0.1" }, body: JSON.stringify({ resource: url, method }), signal: AbortSignal.timeout(3e4) });
-  const j = await r.json().catch(() => ({}));
-  const failed = [...j.preflight ?? []].filter((c) => c && c.passed === false).map((c) => `${c.check}: ${c.detail ?? ""}`);
-  return { http: r.status, valid: j.valid ?? null, simulation: j.simulation?.outcome ?? null, indexed: j.index ?? null, failed_checks: failed };
-}
-
 // src/util.ts
 function parseUsdc(s, decimals = 6) {
   const m = /^(\d+)(?:\.(\d+))?$/.exec(String(s).trim());
@@ -912,8 +908,64 @@ function assertNoSecret(text, secret) {
   if (t.includes(hex) || t.includes(hex.slice(-16))) throw new Error("leak guard: output would contain key material; refusing to print or write it");
 }
 
+// src/tiers.ts
+function loadTiers(text) {
+  const j = JSON.parse(text);
+  if (!j || typeof j !== "object" || Array.isArray(j)) throw new Error('expected an object: {"<url>": {"price": "0.01", ...}}');
+  return Object.entries(j).map(([url, v]) => {
+    if (!/^https?:\/\//.test(url)) throw new Error(`${url}: keys must be full http(s) URLs`);
+    if (!v || v.price === void 0) throw new Error(`${url}: "price" (USDC, e.g. "0.01") is required`);
+    parseUsdc(String(v.price));
+    return { url, price: String(v.price), method: v.method, body: v.body === void 0 ? void 0 : typeof v.body === "string" ? v.body : JSON.stringify(v.body), status: v.status, contains: v.contains };
+  });
+}
+async function runTiers(tiers, payTo, opt = {}) {
+  const routes = [];
+  for (const t of tiers) {
+    const exp = parseUsdc(t.price);
+    const r = await runPaidTest({
+      url: t.url,
+      method: t.method ?? "POST",
+      body: t.body,
+      payTo,
+      network: opt.network,
+      asset: opt.asset,
+      maxAmount: exp,
+      expectPrice: exp,
+      account: planAccount(),
+      replay: false,
+      underpay: false,
+      fetchImpl: opt.fetchImpl
+    });
+    const checks2 = r.checks.filter((c) => c.id !== "P202");
+    routes.push({ url: t.url, expected: exp.toString(), quoted: r.amount, verdict: r.verdict, checks: checks2 });
+  }
+  const checks = [];
+  const byPrice = /* @__PURE__ */ new Map();
+  for (const r of routes) if (r.quoted) byPrice.set(r.quoted, [...byPrice.get(r.quoted) ?? [], r.url]);
+  const dup = [...byPrice.entries()].filter(([, u]) => u.length > 1);
+  const declaredDistinct = new Set(tiers.map((t) => parseUsdc(t.price).toString())).size === tiers.length;
+  if (routes.length > 1) checks.push({
+    id: "P208",
+    ok: dup.length === 0 || !declaredDistinct,
+    severity: "warn",
+    text: dup.length === 0 ? "every route quotes a different price" : `${dup.map(([p, u]) => `${u.length} routes quote ${p} base units (${u.join(", ")})`).join("; ")}${declaredDistinct ? " although your tiers file prices them differently" : " (your tiers file prices them the same, so this is expected)"}`
+  });
+  const failed = routes.some((r) => r.verdict !== "plan") || checks.some((c) => c.ok === false && c.severity === "error");
+  return { verdict: failed ? "fail" : "pass", routes, checks };
+}
+
+// src/cdp.ts
+var CDP_VALIDATE = "https://api.cdp.coinbase.com/platform/v2/x402/validate";
+async function cdpValidate(url, method, fetchImpl = fetch) {
+  const r = await fetchImpl(CDP_VALIDATE, { method: "POST", headers: { "content-type": "application/json", "user-agent": "paidpath/0.1" }, body: JSON.stringify({ resource: url, method }), signal: AbortSignal.timeout(3e4) });
+  const j = await r.json().catch(() => ({}));
+  const failed = [...j.preflight ?? []].filter((c) => c && c.passed === false).map((c) => `${c.check}: ${c.detail ?? ""}`);
+  return { http: r.status, valid: j.valid ?? null, simulation: j.simulation?.outcome ?? null, indexed: j.index ?? null, failed_checks: failed };
+}
+
 // src/cli.ts
-var VERSION = "0.1.2";
+var VERSION = "0.1.3";
 var KEY_ENV = "PAIDPATH_PRIVATE_KEY";
 var HELP = `paidpath ${VERSION}: self-test kit for x402 sellers. Test YOUR OWN paid endpoint, unpaid and paid.
 
@@ -932,9 +984,16 @@ var HELP = `paidpath ${VERSION}: self-test kit for x402 sellers. Test YOUR OWN p
                               costs one more payment of the price, to your own payTo)
       --method POST|GET (default POST)   --body '<json>' | --body-file <path>   --header 'Name: value' (repeatable)
       --network eip155:8453 (default)    --asset <token>   --rpc <url> (repeatable)
-      --expect-status <n>   --expect-contains <text>   --no-replay   --no-underpay
+      --expect-status <n>   --expect-contains <text>   --expect-price <usdc>   --no-replay   --no-underpay
+      --tiers <tiers.json>    take this URL's expect-price/status/contains/method/body from a tiers file
       --max-signatures <n> (default 2, 3 with --race)   --max-total-usdc <cap> (default 2x price, 3x with --race)
       --out <transcript.json>   --json   --allow-private
+
+  paidpath tiers <tiers.json> --pay-to <your payTo> [--json]
+      No key, no payment. For a seller with several routes at different prices: reads each route's 402
+      and checks the quoted price against the file (P207), and flags two routes quoting the same price (P208).
+      tiers.json: {"https://api.example/basic": {"price": "0.001"}, "https://api.example/pro": {"price": "0.01",
+      "method": "POST", "body": {"q": 1}, "status": 200, "contains": "result"}}
 
   The key is read only from the ${KEY_ENV} env var, used in-process to sign, never sent or written.
   Every signature passes a guard: only an EIP-3009 transferWithAuthorization of the expected token,
@@ -1012,6 +1071,32 @@ not tested here: ${r.not_tested.join("; ")}. Run 'paidpath pay' for the paid pat
     }
     return r.verdict === "fail" ? 1 : 0;
   }
+  if (cmd === "tiers") {
+    const payTo = a.one("pay-to");
+    if (!payTo || !/^0x[0-9a-fA-F]{40}$/.test(payTo)) {
+      emit("--pay-to <0x\u2026 your own receiving address> is required.");
+      return 2;
+    }
+    let tiers;
+    try {
+      tiers = loadTiers(readFileSync(url, "utf8"));
+    } catch (e) {
+      emit(`tiers file: ${e.message}`);
+      return 2;
+    }
+    const r = await runTiers(tiers, payTo, { network: a.one("network"), asset: a.one("asset") });
+    if (a.has("json")) emit(JSON.stringify({ tool: `paidpath ${VERSION}`, ...r }, null, 2));
+    else {
+      emit(`paidpath tiers (${r.routes.length} routes, unpaid only, nothing signed)`);
+      for (const t of r.routes) {
+        emit(`  ${t.url}  expected ${t.expected}  quoted ${t.quoted ?? "?"}`);
+        for (const c of t.checks) emit(`    ${mark(c.ok)} ${c.id} ${c.text}`);
+      }
+      for (const c of r.checks) emit(`  ${mark(c.ok)} ${c.id} ${c.text}`);
+      emit(`verdict: ${r.verdict.toUpperCase()}`);
+    }
+    return r.verdict === "pass" ? 0 : 1;
+  }
   if (cmd === "pay") {
     const payTo = a.one("pay-to");
     const cap = a.one("max-usdc");
@@ -1023,7 +1108,20 @@ not tested here: ${r.not_tested.join("; ")}. Run 'paidpath pay' for the paid pat
       emit("--max-usdc <cap per payment, e.g. 0.01> is required.");
       return 2;
     }
-    let body = a.one("body");
+    let tier;
+    if (a.one("tiers")) {
+      try {
+        tier = loadTiers(readFileSync(a.one("tiers"), "utf8")).find((t) => t.url === url);
+      } catch (e) {
+        emit(`tiers file: ${e.message}`);
+        return 2;
+      }
+      if (!tier) {
+        emit(`--tiers: ${url} is not in the tiers file.`);
+        return 2;
+      }
+    }
+    let body = a.one("body") ?? tier?.body;
     const bf = a.one("body-file");
     if (bf) body = readFileSync(bf, "utf8");
     const headers = {};
@@ -1048,9 +1146,11 @@ not tested here: ${r.not_tested.join("; ")}. Run 'paidpath pay' for the paid pat
     } else account = planAccount();
     let r;
     try {
+      const ep = a.one("expect-price") ?? tier?.price;
       r = await runPaidTest({
         url,
-        method: a.one("method") ?? "POST",
+        method: a.one("method") ?? tier?.method ?? "POST",
+        expectPrice: ep !== void 0 ? parseUsdc(String(ep)) : void 0,
         body,
         headers,
         payTo,
@@ -1064,8 +1164,8 @@ not tested here: ${r.not_tested.join("; ")}. Run 'paidpath pay' for the paid pat
         underpay: !a.has("no-underpay"),
         replayBody: a.one("replay-body"),
         race: a.has("race"),
-        expectStatus: a.one("expect-status") ? Number(a.one("expect-status")) : void 0,
-        expectContains: a.one("expect-contains"),
+        expectStatus: a.one("expect-status") ? Number(a.one("expect-status")) : tier?.status,
+        expectContains: a.one("expect-contains") ?? tier?.contains,
         rpcUrls: a.opt["rpc"]
       });
     } catch (e) {
