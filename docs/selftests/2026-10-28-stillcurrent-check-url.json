@@ -1,0 +1,251 @@
+{
+  "tool": "paidpath 0.1.0",
+  "verdict": "pass",
+  "url": "https://stillcurrent.something-agent.workers.dev/check/url",
+  "method": "POST",
+  "checks": [
+    {
+      "id": "P200",
+      "ok": true,
+      "severity": "error",
+      "text": "unpaid POST returns 402"
+    },
+    {
+      "id": "P201",
+      "ok": true,
+      "severity": "info",
+      "text": "requirement selected: eip155:8453, 10000 base units of 0x833589fC… to 0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700"
+    },
+    {
+      "id": "P203",
+      "ok": true,
+      "severity": "error",
+      "text": "paid request returns 200"
+    },
+    {
+      "id": "P204",
+      "ok": true,
+      "severity": "error",
+      "text": "paid response delivers a body (1017 bytes)"
+    },
+    {
+      "id": "P205",
+      "ok": true,
+      "severity": "error",
+      "text": "paid body contains \"\\\"verdict\\\"\""
+    },
+    {
+      "id": "P206",
+      "ok": true,
+      "severity": "warn",
+      "text": "paid body parses as JSON (content-type application/json)"
+    },
+    {
+      "id": "P210",
+      "ok": true,
+      "severity": "error",
+      "text": "PAYMENT-RESPONSE header present"
+    },
+    {
+      "id": "P211",
+      "ok": true,
+      "severity": "error",
+      "text": "settlement success=true"
+    },
+    {
+      "id": "P212",
+      "ok": true,
+      "severity": "error",
+      "text": "settlement network eip155:8453 matches the requirement (eip155:8453)"
+    },
+    {
+      "id": "P213",
+      "ok": true,
+      "severity": "warn",
+      "text": "settlement payer 0x33190c9d2662f94a19ce88ea666f0ff8cede3700 is the paying wallet"
+    },
+    {
+      "id": "P214",
+      "ok": true,
+      "severity": "error",
+      "text": "settlement transaction 0x82dc310a962e100800c27937c8bcd854735ed333a585f7d414bfc0c6e3468461"
+    },
+    {
+      "id": "P224",
+      "ok": true,
+      "severity": "error",
+      "text": "RPC chain id 8453 matches eip155:8453"
+    },
+    {
+      "id": "P220",
+      "ok": true,
+      "severity": "error",
+      "text": "receipt found in block 53188894"
+    },
+    {
+      "id": "P221",
+      "ok": true,
+      "severity": "error",
+      "text": "transaction status success"
+    },
+    {
+      "id": "P222",
+      "ok": true,
+      "severity": "error",
+      "text": "token Transfer 0x33190c… -> 0x33190c… found on 0x833589…"
+    },
+    {
+      "id": "P223",
+      "ok": true,
+      "severity": "error",
+      "text": "amount on-chain 10000 equals the advertised amount"
+    },
+    {
+      "id": "P230",
+      "ok": true,
+      "severity": "error",
+      "text": "replayed payment header refused with 402"
+    },
+    {
+      "id": "P240",
+      "ok": true,
+      "severity": "error",
+      "text": "underpayment (9999 < 10000) refused with 402"
+    }
+  ],
+  "settlements": [
+    {
+      "purpose": "payment",
+      "tx": "0x82dc310a962e100800c27937c8bcd854735ed333a585f7d414bfc0c6e3468461",
+      "network": "eip155:8453",
+      "amount": "10000",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "from": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+      "to": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+      "block": 53188894
+    }
+  ],
+  "signed": [
+    {
+      "n": 1,
+      "to": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+      "value": "10000",
+      "nonce": "0xe69e0157d5ec7440054d8643be9e34cb53bf508077b4422b146487dcb42bac43",
+      "validBefore": "1793167430",
+      "purpose": "payment"
+    },
+    {
+      "n": 2,
+      "to": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+      "value": "9999",
+      "nonce": "0x1482fd32aa167e8405050f6a4e1764dc36dcd9ea697fba02852f9235d0da1249",
+      "validBefore": "1793167436",
+      "purpose": "underpayment probe"
+    }
+  ],
+  "exchanges": [
+    {
+      "step": "unpaid",
+      "method": "POST",
+      "url": "https://stillcurrent.something-agent.workers.dev/check/url",
+      "status": 402,
+      "ms": 126,
+      "body_bytes": 633,
+      "body_preview": "{\"x402Version\":2,\"error\":\"Payment required\",\"message\":\"StillCurrent /check/url costs $0.01 in USDC on eip155:8453. Payment requirements are in the PAYMENT-REQUIRED response header (base64-encoded JSON). An empty body or {} gets this challenge (discovery probes); a non-empty invalid body gets a free "
+    },
+    {
+      "step": "paid",
+      "method": "POST",
+      "url": "https://stillcurrent.something-agent.workers.dev/check/url",
+      "status": 200,
+      "ms": 4331,
+      "sent_payment": {
+        "x402Version": 2,
+        "accepted": {
+          "network": "eip155:8453",
+          "amount": "10000",
+          "payTo": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        },
+        "authorization": {
+          "from": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+          "to": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+          "value": "10000",
+          "validAfter": "0",
+          "validBefore": "1793167430",
+          "nonce": "0xe69e0157d5ec7440054d8643be9e34cb53bf508077b4422b146487dcb42bac43"
+        },
+        "signature": "0x7f4e7c9a…(redacted)"
+      },
+      "body_bytes": 1017,
+      "body_preview": "{\"url\":\"https://example.com\",\"verdict\":\"live\",\"freshness\":\"fresh\",\"usable_as_citation\":true,\"recommended_action\":\"OK to cite.\",\"evidence\":[\"HTTP 200 after 0 redirect(s)\",\"last updated 2026-10-24 (3 days ago, source http.Last-Modified, confidence low)\"],\"http\":{\"reachable\":true,\"status\":200,\"final_ur",
+      "payment_response": {
+        "success": true,
+        "payer": "0x33190c9d2662f94a19ce88ea666f0ff8cede3700",
+        "transaction": "0x82dc310a962e100800c27937c8bcd854735ed333a585f7d414bfc0c6e3468461",
+        "network": "eip155:8453"
+      }
+    },
+    {
+      "step": "replay",
+      "method": "POST",
+      "url": "https://stillcurrent.something-agent.workers.dev/check/url",
+      "status": 402,
+      "ms": 682,
+      "sent_payment": {
+        "x402Version": 2,
+        "accepted": {
+          "network": "eip155:8453",
+          "amount": "10000",
+          "payTo": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        },
+        "authorization": {
+          "from": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+          "to": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+          "value": "10000",
+          "validAfter": "0",
+          "validBefore": "1793167430",
+          "nonce": "0xe69e0157d5ec7440054d8643be9e34cb53bf508077b4422b146487dcb42bac43"
+        },
+        "signature": "0x7f4e7c9a…(redacted)"
+      },
+      "body_bytes": 2,
+      "body_preview": "{}"
+    },
+    {
+      "step": "underpay",
+      "method": "POST",
+      "url": "https://stillcurrent.something-agent.workers.dev/check/url",
+      "status": 402,
+      "ms": 288,
+      "sent_payment": {
+        "x402Version": 2,
+        "accepted": {
+          "network": "eip155:8453",
+          "amount": "9999",
+          "payTo": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        },
+        "authorization": {
+          "from": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+          "to": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+          "value": "9999",
+          "validAfter": "0",
+          "validBefore": "1793167436",
+          "nonce": "0x1482fd32aa167e8405050f6a4e1764dc36dcd9ea697fba02852f9235d0da1249"
+        },
+        "signature": "0x5fd277f9…(redacted)"
+      },
+      "body_bytes": 2,
+      "body_preview": "{}"
+    }
+  ],
+  "started_at": "2026-10-28T05:58:50.505Z",
+  "took_ms": 6472,
+  "network": "eip155:8453",
+  "payTo": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700",
+  "amount": "10000",
+  "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "payer": "0x33190c9D2662F94A19CE88EA666f0ff8CeDe3700"
+}

@@ -1,0 +1,17 @@
+# paidpath
+
+> Free, open-source self-test kit for x402 sellers (MIT). CLI: `npx github:something-agent/paidpath`. Tests your OWN paid endpoint: the unpaid 402 and directory readiness with no key, and the paid path end to end with a key you supply.
+
+## Commands
+- `paidpath lint <url> [--method auto|GET|POST] [--cdp-validate] [--json]`: no key, no payment. x402lint rules (X001-X133) plus directory readiness for x402dash (GET must return 402), x402scan (v2 402 + /openapi.json x-payment-info or /.well-known/x402 + input schema), the402 (validator "payable"), CDP/PayAI Bazaar (extensions.bazaar input/output/schema, description <= 500 chars, non-tunnel https host; listing needs one settled payment).
+- `paidpath pay <url> --pay-to <your payTo> --max-usdc <cap> [--body json] [--yes]`: without --yes, a plan (nothing signed). With --yes and env PAIDPATH_PRIVATE_KEY: pays once, then checks P203-P206 delivery, P210-P214 PAYMENT-RESPONSE, P220-P224 on-chain Transfer (payTo, amount, token, chain), P230 replay refused, P240 underpayment (1 unit less) refused. Writes a redacted JSON transcript with --out.
+- Exit codes: 0 pass, 1 fail, 2 refused/usage, 3 plan only.
+
+## Safety
+- The key is read only from PAIDPATH_PRIVATE_KEY, used in-process, never sent or written; a leak guard blocks output containing it.
+- A signer guard allows only EIP-3009 TransferWithAuthorization on the expected token and chain, to --pay-to, within per-payment, total and count caps (default 2 signatures).
+
+## Links
+- Repo: https://github.com/something-agent/paidpath
+- Hosted unpaid-path linter + MCP: https://github.com/something-agent/x402lint
+- Example transcript: https://github.com/something-agent/paidpath/tree/main/docs/selftests
