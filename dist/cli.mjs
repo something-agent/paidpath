@@ -405,7 +405,7 @@ async function lintEndpoint(rawUrl, o, ctx = {}) {
   const reachable = tries.filter(([, x]) => x?.r);
   if (!reachable.length) {
     f.push(F("X001", "error", `Could not fetch the endpoint: ${g?.err ?? p?.err ?? "no response"}.`, "Check DNS/TLS and that the Worker/server answers unauthenticated requests."));
-    return { url: u.href, verdict: "fail", probes, findings: f, not_tested: NOT_TESTED, scope: SCOPE, verdict_meaning: VERDICT_MEANING, paid_path_checks: PAID_PATH_CHECKS };
+    return { url: u.href, verdict: "fail", summary: null, probes, findings: f, not_tested: NOT_TESTED, scope: SCOPE, verdict_meaning: VERDICT_MEANING, paid_path_checks: PAID_PATH_CHECKS };
   }
   const c402 = reachable.filter(([, x]) => x.r.status === 402);
   if (!c402.length) {

@@ -22,7 +22,7 @@ describe("paid path against a correct seller", () => {
   it("redacts signatures in the transcript", async () => {
     const { r } = await run();
     const paid = r.exchanges.find((e: any) => e.step === "paid");
-    expect(paid.sent_payment.signature).toMatch(/redacted/);
+    expect(paid!.sent_payment.signature).toMatch(/redacted/);
     expect(JSON.stringify(r)).not.toMatch(/0x[0-9a-f]{130}/i);
   });
   it("--expect-contains checks the delivered body", async () => {
