@@ -495,11 +495,11 @@ async function lintEndpoint(rawUrl, o, ctx = {}) {
       }
       if (wk.r?.status === 200) {
         const txt = dec.decode(wk.r.body).toLowerCase();
-        const missing = [...new Set((parsed.pr.accepts ?? []).map((a) => String(a.payTo ?? "").toLowerCase()).filter(Boolean))].filter((x) => !txt.includes(x));
-        if (missing.length && !/0x[0-9a-f]{40}/.test(txt)) f.push(F("X010", "info", "/.well-known/x402 exists but lists no payTo address, so it cannot be cross-checked against the live challenge.", void 0, "/.well-known/x402"));
+        const missing = [...new Set((parsed.pr.accepts ?? []).map((a) => String(a.payTo ?? "").toLowerCase()).filter(Boolean))].filter((x) => !wellKnownAddresses(txt).includes(x) && !(!/^0x[0-9a-f]{40}$/.test(x) && txt.includes(x)));
+        const wkAddrs = wellKnownAddresses(txt);
+        if (missing.length && !wkAddrs.length) f.push(F("X010", "info", "/.well-known/x402 exists but lists no payTo address, so it cannot be cross-checked against the live challenge.", void 0, "/.well-known/x402"));
         else if (missing.length) f.push(F("X010", "warn", `/.well-known/x402 exists but does not mention payTo ${missing.map((m) => m.slice(0, 10) + "\u2026").join(", ")} from the live challenge.`, "Keep the well-known file and the live challenge in sync.", "/.well-known/x402"));
         const live = new Set((parsed.pr.accepts ?? []).map((a) => String(a.payTo ?? "").toLowerCase()));
-        const wkAddrs = [...new Set(txt.match(/0x[0-9a-f]{40}(?![0-9a-f])/g) ?? [])];
         const assets = /* @__PURE__ */ new Set([...KNOWN_ASSETS.keys(), ...(parsed.pr.accepts ?? []).map((a) => String(a.asset ?? "").toLowerCase())]);
         const extra = wkAddrs.filter((x) => !live.has(x) && !assets.has(x));
         if (!missing.length && extra.length) f.push(F("X010", "info", `/.well-known/x402 also lists ${extra.length} address(es) this route's challenge does not use (${extra.map((m) => m.slice(0, 10) + "\u2026").join(", ")}). Fine if other routes pay to them; stale if they predate a payTo rotation.`, "Remove retired payTo addresses from the well-known file, or say which route each belongs to.", "/.well-known/x402"));
@@ -534,6 +534,22 @@ async function lintEndpoint(rawUrl, o, ctx = {}) {
     });
   }
   return { url: u.href, verdict: verdictOf(f), summary, probes, ...directories ? { directories } : {}, counts: { error: f.filter((x) => x.severity === "error").length, warn: f.filter((x) => x.severity === "warn").length, info: f.filter((x) => x.severity === "info").length }, findings: f, not_tested: NOT_TESTED, scope: SCOPE, verdict_meaning: VERDICT_MEANING, paid_path_checks: PAID_PATH_CHECKS };
+}
+function wellKnownAddresses(txt) {
+  const out = /* @__PURE__ */ new Set();
+  const isAddr = (v) => /^0x[0-9a-f]{40}$/i.test(v.trim());
+  try {
+    const walk = (o) => {
+      if (typeof o === "string") {
+        if (isAddr(o)) out.add(o.trim().toLowerCase());
+      } else if (Array.isArray(o)) o.forEach(walk);
+      else if (o && typeof o === "object") Object.values(o).forEach(walk);
+    };
+    walk(JSON.parse(txt));
+  } catch {
+    for (const m of txt.matchAll(/(?<![0-9a-z=&/?#.])0x[0-9a-f]{40}(?![0-9a-z])/gi)) out.add(m[0].toLowerCase());
+  }
+  return [...out];
 }
 
 // src/paid.ts

@@ -7,7 +7,7 @@ import { loadTiers, runTiers } from "./tiers";
 import { cdpValidate } from "./cdp";
 import { assertNoSecret, parseUsdc, fmtUsdc } from "./util";
 
-export const VERSION = "0.1.3";
+export const VERSION = "0.1.4";
 const KEY_ENV = "PAIDPATH_PRIVATE_KEY";
 const HELP = `paidpath ${VERSION}: self-test kit for x402 sellers. Test YOUR OWN paid endpoint, unpaid and paid.
 
