@@ -80,7 +80,7 @@ import { runPaidTest, lintEndpoint, directoryReadiness, guardSigner } from "paid
 
 ## Develop
 
-`npm install && npm test` (79 tests; the paid path is tested against an in-process seller with switchable bugs and a
+`npm install && npm test` (87 tests; the paid path is tested against an in-process seller with switchable bugs and a
 stub RPC: no money moves). `npm run build` rebuilds `dist/`.
 
 License: MIT.
