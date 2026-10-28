@@ -70,7 +70,7 @@ describe("cli", () => {
     await expect(main(["lint", key], { PAIDPATH_PRIVATE_KEY: key }, c.out)).rejects.toThrow(/leak guard|valid absolute URL/);
     expect(c.lines.join()).not.toContain("cd".repeat(16));
   });
-  it("help and version", async () => { const c = cap(); expect(await main(["version"], {}, c.out)).toBe(0); expect(c.lines[0]).toBe("0.1.0"); });
+  it("help and version", async () => { const c = cap(); expect(await main(["version"], {}, c.out)).toBe(0); expect(c.lines[0]).toBe("0.1.1"); });
 });
 
 import { lintEndpoint } from "../src/lint/lint";
