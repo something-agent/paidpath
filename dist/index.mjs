@@ -686,13 +686,13 @@ async function runPaidTest(o) {
     ...extra
   });
   let guard;
-  const send = async (step, extraHeaders = {}) => {
+  const send = async (step, extraHeaders = {}, bodyOverride) => {
     const s = Date.now();
     const headers = { "user-agent": "paidpath/0.1 (+https://github.com/something-agent/paidpath)", accept: "application/json, */*;q=0.5", ...o.body && method !== "GET" ? { "content-type": "application/json" } : {}, ...o.headers ?? {}, ...extraHeaders };
     const ex = { step, method, url: o.url, status: null, ms: 0, sent_payment: redactPayment(extraHeaders["PAYMENT-SIGNATURE"] ?? extraHeaders["X-PAYMENT"]) };
     exchanges.push(ex);
     try {
-      const r = await f(o.url, { method, headers, body: method === "GET" || method === "HEAD" ? void 0 : o.body ?? "{}", redirect: "manual", signal: AbortSignal.timeout(6e4) });
+      const r = await f(o.url, { method, headers, body: method === "GET" || method === "HEAD" ? void 0 : bodyOverride ?? o.body ?? "{}", redirect: "manual", signal: AbortSignal.timeout(6e4) });
       const text = await r.text();
       ex.status = r.status;
       ex.ms = Date.now() - s;
@@ -752,8 +752,8 @@ async function runPaidTest(o) {
   }
   add("P201", true, "info", `requirement selected: ${network}, ${amount} base units of ${asset.slice(0, 10)}\u2026 to ${req.payTo}`);
   const chainId = Number(network.split(":")[1]);
-  const maxSignatures = o.maxSignatures ?? (o.underpay === false ? 1 : 2);
-  guard = guardSigner(o.account, { payTo: o.payTo, asset, chainId, maxPerPayment: o.maxAmount, maxTotal: o.maxTotal ?? amount * 2n, maxSignatures });
+  const maxSignatures = o.maxSignatures ?? (o.underpay === false ? 1 : 2) + (o.race ? 1 : 0);
+  guard = guardSigner(o.account, { payTo: o.payTo, asset, chainId, maxPerPayment: o.maxAmount, maxTotal: o.maxTotal ?? amount * (o.race ? 3n : 2n), maxSignatures });
   const client = new x402Client();
   client.register(network, new ExactEvmScheme(guard.signer));
   const http = new x402HTTPClient(client);
@@ -764,7 +764,7 @@ async function runPaidTest(o) {
     payHeaders = http.encodePaymentSignatureHeader(await client.createPaymentPayload(only(req)));
   } catch (e) {
     if (e instanceof PlanStop) {
-      add("P202", null, "info", `plan only: the guard would allow 1 payment authorization of ${amount} to ${req.payTo}${o.underpay === false || amount <= 1n ? "" : ` and 1 underpayment probe of ${amount - 1n} (refused by a correct seller, so it should never settle)`}. Nothing was signed. Re-run with --yes and PAIDPATH_PRIVATE_KEY to pay.`);
+      add("P202", null, "info", `plan only: the guard would allow 1 payment authorization of ${amount} to ${req.payTo}${o.underpay === false || amount <= 1n ? "" : ` and 1 underpayment probe of ${amount - 1n} (refused by a correct seller, so it should never settle)`}${o.race ? ` and 1 race probe of ${amount} (sent twice at once; settles once, to you)` : ""}. Nothing was signed. Re-run with --yes and PAIDPATH_PRIVATE_KEY to pay.`);
       guard.state.signed = [];
       return result("plan", { network, payTo: req.payTo, amount: amount.toString(), asset });
     }
@@ -809,12 +809,45 @@ async function runPaidTest(o) {
     for (const c of oc.checks) add(c.id, c.ok, c.ok === null ? "warn" : "error", c.text);
     settlements.push({ purpose: "payment", tx, network, amount: amount.toString(), asset, from: o.account.address, to: req.payTo, block: oc.block });
   }
+  let replayIdempotent = false;
   if (o.replay !== false && is2xx(st)) {
     const r = await send("replay", payHeaders);
     const rs = r.r?.status ?? null;
     const newTx = r.ex.payment_response?.transaction;
-    add("P230", !is2xx(rs), "error", is2xx(rs) ? `REPLAY ACCEPTED: the same payment header got ${rs} again${newTx ? ` (PAYMENT-RESPONSE tx ${newTx})` : ""}. One payment buys unlimited responses.` : `replayed payment header refused with ${rs ?? r.ex.error}${rs === 402 ? "" : " (402 is the clearest answer)"}`);
+    const sameBody = r.text === p.text;
+    const noNewSettle = !newTx || newTx === tx;
+    if (!is2xx(rs)) add("P230", true, "error", `replayed payment header refused with ${rs ?? r.ex.error}${rs === 402 ? "" : " (402 is the clearest answer)"}. Note: a buyer whose paid response was lost (timeout, 5xx after settle) cannot recover it with this header; consider re-serving the stored response for an identical retry keyed on the authorization nonce`);
+    else if (sameBody && noNewSettle) {
+      replayIdempotent = true;
+      add("P230", true, "warn", `replay of the identical request got ${rs} with a byte-identical body and no new settlement: idempotent re-delivery (good for lost-response retries). This is only safe if the header is bound to the request; P231 checks that`);
+    } else add("P230", false, "error", `REPLAY ACCEPTED: the same payment header got ${rs} again${newTx ? ` (PAYMENT-RESPONSE tx ${newTx})` : ""}${sameBody ? "" : " with a different body"}. One payment buys more than one response.`);
     if (is2xx(rs) && newTx && newTx !== tx) settlements.push({ purpose: "replay (unexpected)", tx: newTx, network, amount: amount.toString(), asset, from: o.account.address, to: req.payTo });
+  }
+  if (o.replay !== false && is2xx(st)) {
+    if (o.replayBody !== void 0 && method !== "GET" && method !== "HEAD") {
+      const r = await send("replay-different-request", payHeaders, o.replayBody);
+      const rs = r.r?.status ?? null;
+      add("P231", !is2xx(rs), "error", is2xx(rs) ? `PAYMENT NOT BOUND TO THE REQUEST: the used payment header bought a different request (${rs}). One payment buys any number of different answers.` : `used payment header with a different request body refused with ${rs ?? r.ex.error}`);
+      const t2 = r.ex.payment_response?.transaction;
+      if (is2xx(rs) && t2 && t2 !== tx) settlements.push({ purpose: "replay with different request (unexpected)", tx: t2, network, amount: amount.toString(), asset, from: o.account.address, to: req.payTo });
+    } else if (replayIdempotent) add("P231", null, "warn", "not tested: the identical replay was re-delivered, so binding to the request matters. Pass --replay-body '<a different valid request>' to check that the used header cannot buy a different answer");
+  }
+  if (o.race && is2xx(st)) {
+    let h = null;
+    try {
+      guard.state.purpose = "race probe";
+      h = http.encodePaymentSignatureHeader(await client.createPaymentPayload(only(req)));
+    } catch (e) {
+      add("P232", null, "warn", `race probe not sent: ${e.message}`);
+    }
+    if (h) {
+      const [a1, a2] = await Promise.all([send("race-1", h), send("race-2", h)]);
+      const ok2 = [a1, a2].filter((x) => is2xx(x.r?.status ?? null));
+      const txs = [...new Set(ok2.map((x) => x.ex.payment_response?.transaction).filter(Boolean))];
+      if (ok2.length === 2 && ok2[0].text === ok2[1].text && txs.length <= 1) add("P232", true, "warn", `both concurrent copies got 2xx with byte-identical bodies and ${txs.length ? "one settlement" : "no settlement reported"}: treated as idempotent re-delivery, not double delivery`);
+      else add("P232", ok2.length <= 1, "error", ok2.length <= 1 ? `concurrent double-submit: ${ok2.length} of 2 delivered (${a1.r?.status ?? a1.ex.error} / ${a2.r?.status ?? a2.ex.error})` : `DOUBLE DELIVERY: both concurrent copies of one authorization got 2xx with different bodies; the nonce lets it settle once, so one of them was free`);
+      for (const t of txs) settlements.push({ purpose: "race probe", tx: t, network, amount: amount.toString(), asset, from: o.account.address, to: req.payTo });
+    }
   }
   if (o.underpay !== false && is2xx(st)) {
     if (amount <= 1n) add("P240", null, "info", "price is 1 base unit; underpayment test skipped");

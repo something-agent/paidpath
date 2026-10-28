@@ -44,7 +44,9 @@ Node 20+. The bundled CLI is in `dist/`; no build step needed.
 | P203–P206 | the paid request returns 2xx, delivers a non-empty body (`--expect-contains`, `--expect-status`), valid JSON if it says JSON |
 | P210–P214 | a `PAYMENT-RESPONSE` header: success, same network, payer is your wallet, a transaction hash |
 | P220–P224 | on-chain: the receipt exists and succeeded, the token Transfer goes payer → payTo on the advertised token, for exactly the advertised amount, on the right chain |
-| P230 | **replay**: the exact same payment header sent again must be refused (no new signature) |
+| P230 | **replay**: the exact same payment header sent again must be refused (no new signature). A byte-identical re-delivery of the identical request with no new settlement passes as a warning (idempotent retry, good for buyers whose response was lost) and then needs P231 |
+| P231 | `--replay-body`: the used payment header with a *different* request must be refused (payment bound to the request) |
+| P232 | `--race` (opt-in, one extra payment to yourself): one fresh authorization sent twice at the same moment; at most one copy may deliver (catches check-then-mark windows) |
 | P240 | **underpayment**: a fresh authorization for 1 base unit less must be refused |
 
 ### Safety

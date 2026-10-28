@@ -72,3 +72,45 @@ describe("refuses before signing", () => {
     expect(check(r, "P240").ok).toBe(null); expect(r.signed).toHaveLength(1); expect(s.settled).toHaveLength(1);
   });
 });
+
+describe("0.1.2: retries, request binding, concurrent double-submit (credit: flapjaxculture, northtape, overwatch-dominion, cinnabar)", () => {
+  it("a correct seller refuses the replay and P230 says what a lost-response buyer can't do", async () => {
+    const { r } = await run();
+    expect(check(r, "P230").ok).toBe(true); expect(check(r, "P230").text).toMatch(/lost/);
+    expect(check(r, "P231")).toBeUndefined();
+  });
+  it("idempotent re-delivery of the identical request passes P230 as a warning and asks for P231", async () => {
+    const { r, s } = await run({ idempotent: true });
+    expect(check(r, "P230")).toMatchObject({ ok: true, severity: "warn" });
+    expect(check(r, "P231")).toMatchObject({ ok: null, severity: "warn" });
+    expect(s.settled).toHaveLength(1); expect(r.verdict).toBe("pass");
+  });
+  it("--replay-body: idempotent but bound to the request -> P231 ok", async () => {
+    const { r } = await run({ idempotent: true }, { replayBody: '{"q":2}' });
+    expect(check(r, "P231").ok).toBe(true); expect(r.verdict).toBe("pass");
+  });
+  it("--replay-body: the used header buys a different request -> P231 fails", async () => {
+    const { r } = await run({ idempotent: true, unbound: true }, { replayBody: '{"q":2}' });
+    expect(check(r, "P231").ok).toBe(false); expect(r.verdict).toBe("fail");
+  });
+  it("a leaky seller that re-serves with a different body still fails P230", async () => {
+    const { r } = await run({ acceptReplay: true });
+    expect(check(r, "P230").ok).toBe(false); expect(check(r, "P230").text).toMatch(/different body/);
+  });
+  it("--race: a correct seller delivers one of two concurrent copies, settles once more", async () => {
+    const { r, s } = await run({}, { race: true });
+    expect(check(r, "P232").ok).toBe(true); expect(check(r, "P232").severity).toBe("error");
+    expect(s.settled).toHaveLength(2);
+    expect(r.signed.map((x: any) => x.purpose)).toEqual(["payment", "race probe", "underpayment probe"]);
+    expect(r.verdict).toBe("pass");
+  });
+  it("--race: check-then-mark window delivers both -> DOUBLE DELIVERY", async () => {
+    const { r, s } = await run({ raceWindow: true }, { race: true });
+    expect(check(r, "P232").ok).toBe(false); expect(check(r, "P232").text).toMatch(/DOUBLE DELIVERY/);
+    expect(s.settled).toHaveLength(2); expect(r.verdict).toBe("fail");
+  });
+  it("--race is opt-in: default runs sign only two authorizations", async () => {
+    const { r } = await run();
+    expect(check(r, "P232")).toBeUndefined(); expect(r.signed).toHaveLength(2);
+  });
+});

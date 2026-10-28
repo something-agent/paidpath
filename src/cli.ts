@@ -6,7 +6,7 @@ import { runPaidTest, planAccount, PaidResult } from "./paid";
 import { cdpValidate } from "./cdp";
 import { assertNoSecret, parseUsdc, fmtUsdc } from "./util";
 
-export const VERSION = "0.1.1";
+export const VERSION = "0.1.2";
 const KEY_ENV = "PAIDPATH_PRIVATE_KEY";
 const HELP = `paidpath ${VERSION}: self-test kit for x402 sellers. Test YOUR OWN paid endpoint, unpaid and paid.
 
@@ -18,11 +18,15 @@ const HELP = `paidpath ${VERSION}: self-test kit for x402 sellers. Test YOUR OWN
       Without --yes: a plan. Reads the 402 and shows exactly what would be signed. No key needed.
       With --yes and ${KEY_ENV} set: pays your endpoint ONCE, then checks delivery, the PAYMENT-RESPONSE
       header, the on-chain Transfer (payTo, amount, token, chain), that a replay of the same payment is
-      refused, and that an authorization for 1 unit less is refused.
+      refused (or is an idempotent re-delivery of the identical request), and that an authorization for
+      1 unit less is refused.
+      --replay-body '<json>'  also send the USED payment header with a different request (must be refused)
+      --race                  sign one more authorization and send it twice at once (at most one may deliver;
+                              costs one more payment of the price, to your own payTo)
       --method POST|GET (default POST)   --body '<json>' | --body-file <path>   --header 'Name: value' (repeatable)
       --network eip155:8453 (default)    --asset <token>   --rpc <url> (repeatable)
       --expect-status <n>   --expect-contains <text>   --no-replay   --no-underpay
-      --max-signatures <n> (default 2)   --max-total-usdc <cap> (default 2x price)
+      --max-signatures <n> (default 2, 3 with --race)   --max-total-usdc <cap> (default 2x price, 3x with --race)
       --out <transcript.json>   --json   --allow-private
 
   The key is read only from the ${KEY_ENV} env var, used in-process to sign, never sent or written.
@@ -36,7 +40,7 @@ function parseArgs(argv: string[]) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const [k, inline] = a.slice(2).split(/=(.*)/s, 2);
-      const flag = ["json", "yes", "no-replay", "no-underpay", "allow-private", "cdp-validate", "help"].includes(k);
+      const flag = ["json", "yes", "race", "no-replay", "no-underpay", "allow-private", "cdp-validate", "help"].includes(k);
       const v = flag ? "true" : inline ?? argv[++i];
       if (v === undefined) throw new Error(`--${k} needs a value`);
       (opt[k] ??= []).push(v);
@@ -98,7 +102,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
       r = await runPaidTest({ url, method: a.one("method") ?? "POST", body, headers, payTo, network: a.one("network"), asset: a.one("asset"),
         maxAmount: parseUsdc(cap), maxTotal: a.one("max-total-usdc") ? parseUsdc(a.one("max-total-usdc")!) : undefined,
         maxSignatures: a.one("max-signatures") ? Number(a.one("max-signatures")) : undefined, account,
-        replay: !a.has("no-replay"), underpay: !a.has("no-underpay"),
+        replay: !a.has("no-replay"), underpay: !a.has("no-underpay"), replayBody: a.one("replay-body"), race: a.has("race"),
         expectStatus: a.one("expect-status") ? Number(a.one("expect-status")) : undefined, expectContains: a.one("expect-contains"), rpcUrls: a.opt["rpc"] });
     } catch (e) { emit(`error: ${(e as Error).message}`); return 1; }
     const transcript = JSON.stringify({ tool: `paidpath ${VERSION}`, ...r, payer: live ? account.address : undefined }, null, 2);
