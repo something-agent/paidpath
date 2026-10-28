@@ -387,7 +387,9 @@ function openapiOps(doc, pathname) {
 function altAuth(doc, wkText) {
   const out = [];
   const ss = doc?.components?.securitySchemes ?? doc?.securityDefinitions;
-  if (ss && typeof ss === "object") for (const [name, v] of Object.entries(ss)) out.push(`${name} (${v?.type ?? "?"}${v?.in && v?.name ? `: ${v.in} ${v.name}` : v?.scheme ? `: ${v.scheme}` : ""})`);
+  if (ss && typeof ss === "object") {
+    for (const [name, v] of Object.entries(ss)) if (!/x402/i.test(`${name} ${v?.scheme ?? ""}`)) out.push(`${name} (${v?.type ?? "?"}${v?.in && v?.name ? `: ${v.in} ${v.name}` : v?.scheme ? `: ${v.scheme}` : ""})`);
+  }
   if (wkText) {
     try {
       const w = JSON.parse(wkText);
@@ -417,7 +419,7 @@ async function lintEndpoint(rawUrl, o, ctx = {}) {
     method === "GET" ? Promise.resolve(void 0) : tryFetch(u.href, post),
     tryFetch(origin + "/.well-known/x402", { ...base, maxBytes: 65536, maxRedirects: 1 }),
     tryFetch(origin + "/llms.txt", { ...base, maxBytes: 4096, maxRedirects: 1 }),
-    tryFetch(origin + "/openapi.json", { ...base, maxBytes: o.directories ? 262144 : 65536, maxRedirects: 1 }),
+    tryFetch(origin + "/openapi.json", { ...base, maxBytes: 524288, maxRedirects: 1 }),
     tryFetch(u.href, { ...base, method: "OPTIONS", headers: { origin: "https://agent.example", "access-control-request-method": "POST", "access-control-request-headers": "content-type,payment-signature,x-payment" } })
   ]);
   const probes = {};

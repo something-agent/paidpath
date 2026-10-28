@@ -151,7 +151,7 @@ function openapiOps(doc: any, pathname: string): Set<string> | null {
 function altAuth(doc: any, wkText: string | null): string[] {
   const out: string[] = [];
   const ss = doc?.components?.securitySchemes ?? doc?.securityDefinitions;
-  if (ss && typeof ss === "object") for (const [name, v] of Object.entries<any>(ss)) out.push(`${name} (${v?.type ?? "?"}${v?.in && v?.name ? `: ${v.in} ${v.name}` : v?.scheme ? `: ${v.scheme}` : ""})`);
+  if (ss && typeof ss === "object") for (const [name, v] of Object.entries<any>(ss)) if (!/x402/i.test(`${name} ${v?.scheme ?? ""}`)) out.push(`${name} (${v?.type ?? "?"}${v?.in && v?.name ? `: ${v.in} ${v.name}` : v?.scheme ? `: ${v.scheme}` : ""})`);
   if (wkText) { try { const w = JSON.parse(wkText); for (const k of Object.keys(w ?? {})) if (/^(alt_?auth|auth(entication)?|api_?keys?|credits|prepaid|alternate_?(auth|payment)s?)$/i.test(k)) out.push(`/.well-known/x402 "${k}"`); } catch { /* not JSON */ } }
   return [...new Set(out)].slice(0, 6);
 }
@@ -173,7 +173,7 @@ export async function lintEndpoint(rawUrl: string, o: { method?: "auto" | "GET" 
     method === "GET" ? Promise.resolve(undefined) : tryFetch(u.href, post),
     tryFetch(origin + "/.well-known/x402", { ...base, maxBytes: 65_536, maxRedirects: 1 }),
     tryFetch(origin + "/llms.txt", { ...base, maxBytes: 4096, maxRedirects: 1 }),
-    tryFetch(origin + "/openapi.json", { ...base, maxBytes: o.directories ? 262_144 : 65_536, maxRedirects: 1 }),
+    tryFetch(origin + "/openapi.json", { ...base, maxBytes: 524_288, maxRedirects: 1 }),
     tryFetch(u.href, { ...base, method: "OPTIONS", headers: { origin: "https://agent.example", "access-control-request-method": "POST", "access-control-request-headers": "content-type,payment-signature,x-payment" } }),
   ]);
   const probes: Record<string, any> = {};
